@@ -1,0 +1,9 @@
+HELLBOUND FAMILY V33 - OVERLAY
+
+1. Sauvegardez votre depot GitHub.
+2. Remplacez server.js ET le dossier public/ avec ceux de ce ZIP.
+3. Conservez package.json, vos variables Render et votre base PostgreSQL.
+4. Attendez le statut Live dans Render et faites Ctrl+F5.
+5. Tous les comptes connectes peuvent consulter, publier et telecharger les overlays. Directeur et au-dessus peuvent supprimer.
+
+ATTENTION : 1000 Mo est la limite applicative, mais Render et PostgreSQL peuvent refuser des fichiers aussi gros (RAM, stockage, temps de requete, taille BYTEA). Pour de tres gros fichiers, un stockage objet externe est recommande. Les fichiers sont conserves en PostgreSQL pour survivre aux redeploiements.
