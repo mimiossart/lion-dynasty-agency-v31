@@ -108,7 +108,7 @@ async function reunions(){
 }
 
 async function invitation(){
-  const link="https://www.tiktok.com/t/ZSXVYGTVJ/";
+  const link="https://www.tiktok.com/t/ZSqptNGm9/";
   return head("AGENCE","Lien invitation agence","Lien officiel pour inviter un nouveau membre à rejoindre l’agence.",`<button class="btn" id="copyInvite">Copier le lien</button>`)+`<div class="panel invitation-card"><div class="eyebrow">INVITATION AGENCE</div><h2>Rejoindre Hellbound Family</h2><p class="muted">Utilise ce lien pour inviter une personne à rejoindre l’agence sur TikTok.</p><div class="invite-link"><a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a></div><div class="muted">Clique sur le lien pour l’ouvrir ou utilise « Copier le lien ».</div></div>`;
 }
 
