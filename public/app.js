@@ -1,0 +1,367 @@
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>\"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));
+// Convertit la date locale du champ datetime-local en instant ISO explicite.
+// Empêche PostgreSQL/Render (souvent configuré en UTC) de décaler l'heure d'une heure.
+function localDateTimeToISO(value){if(!value)return null;const date=new Date(value);return Number.isNaN(date.getTime())?null:date.toISOString()}
+const halloweenFrames={pumpkin:["🎃","Citrouille"],ghost:["👻","Fantôme"],bat:["🦇","Chauve-souris"],vampire:["🧛","Vampire"],spider:["🕷️","Araignée"]};
+let halloweenTimer=null;
+function halloweenAvatar(user=me){const frame=user?.halloween_enabled?(user.halloween_frame||"pumpkin"):null;const icon=frame&&halloweenFrames[frame]?halloweenFrames[frame][0]:"";return `<div class="avatar-wrap ${frame?`halloween-frame-${frame}`:""}"><div class="avatar">${esc((user?.name||"L").slice(0,1).toUpperCase())}</div>${icon?`<span class="avatar-halloween-mark">${icon}</span>`:""}</div>`}
+function startHalloweenClock(){
+  if(halloweenTimer) clearInterval(halloweenTimer);
+  const el=$("#halloweenCountdown");
+  const card=$("#halloweenCard");
+  const now=new Date();
+  const end=new Date(2026,9,31,23,59,59,999);
+  if(!el||!card){document.body.classList.remove("halloween-night");return;}
+  const tick=()=>{
+    const n=new Date();
+    if(n>end){card.hidden=true;document.body.classList.remove("halloween-night");if(halloweenTimer)clearInterval(halloweenTimer);return;}
+    const nightStart=new Date(2026,9,31,18,0,0,0);
+    if(n>=nightStart){
+      document.body.classList.add("halloween-night");
+      card.classList.add("halloween-night-card");
+      el.innerHTML=`<span class="night-banner">🎃 HALLOWEEN NIGHT 🎃</span><span class="countdown-label">La nuit des Lions est arrivée</span>`;
+      return;
+    }
+    document.body.classList.remove("halloween-night");
+    const ms=Math.max(0,nightStart-n.getTime()); const total=Math.floor(ms/1000);
+    const days=Math.floor(total/86400), hours=Math.floor(total%86400/3600), minutes=Math.floor(total%3600/60), seconds=total%60;
+    el.innerHTML=`<span class="countdown-label">👻 La nuit approche...</span><div class="countdown-units"><b>${days}</b><i>JOURS</i><b>${String(hours).padStart(2,"0")}</b><i>H</i><b>${String(minutes).padStart(2,"0")}</b><i>MIN</i><b>${String(seconds).padStart(2,"0")}</b><i>SEC</i></div>`;
+  };
+  tick(); halloweenTimer=setInterval(tick,1000);
+}
+async function halloweenSettings(){
+  const current=me||{}; const selected=current.halloween_frame||"pumpkin";
+  const b=modal(`<div class="modal halloween-settings-modal"><h2>🎃 Mon Halloween 2026</h2><p class="muted">Active ta participation et choisis ton cadre temporaire. Le badge sera visible dans Créateurs.</p><label class="halloween-switch"><input id="halloweenEnabled" type="checkbox" ${current.halloween_enabled?"checked":""}><span>Participer à Halloween 2026</span></label><div class="field"><label>CADRE HALLOWEEN</label><div class="frame-grid">${Object.entries(halloweenFrames).map(([k,v])=>`<button type="button" class="frame-choice ${selected===k?"selected":""}" data-frame="${k}"><span>${v[0]}</span><b>${v[1]}</b></button>`).join("")}</div></div><button class="btn" id="saveHalloween">Enregistrer</button> <button class="btn" id="close">Annuler</button></div>`);
+  let frame=selected; b.querySelectorAll("[data-frame]").forEach(x=>x.onclick=()=>{frame=x.dataset.frame;b.querySelectorAll("[data-frame]").forEach(y=>y.classList.toggle("selected",y===x));});
+  $("#close").onclick=()=>b.remove(); $("#saveHalloween").onclick=async()=>{try{const d=await api("/api/me/halloween",{method:"PATCH",body:JSON.stringify({enabled:$("#halloweenEnabled").checked,frame})});me={...me,...d.user};b.remove();toast(me.halloween_enabled?"Participation Halloween activée 🎃":"Participation Halloween désactivée");page("dashboard")}catch(e){toast(e.message)}};
+}
+const roleLevel={Fondateur:6,"Co-Fondateur":5,Directeur:4,Manager:3,Ambassadeur:2,Créateur:1};
+let me=null;
+async function api(url,opt={}){const isForm=opt.body instanceof FormData;const headers=isForm?{...(opt.headers||{})}:{"Content-Type":"application/json",...(opt.headers||{})};const r=await fetch(url,{cache:"no-store",...opt,headers});let d={};try{d=await r.json()}catch{}if(!r.ok){const e=new Error(d.error||"Erreur");Object.assign(e,d,{status:r.status});throw e}return d}
+function toast(msg){let x=document.createElement("div");x.className="toast";x.textContent=msg;document.body.append(x);setTimeout(()=>x.remove(),2800)}
+const baseMenu=[
+ ["dashboard","⌂","Tableau de bord",1], ["classement","♛","Classement",1], ["createurs","♙","Créateurs",1], ["danger","⚠","Créateurs en danger",3],
+ ["tiktok","♪","Profils TikTok",1], ["reglements","▶","Règlements TikTok",1], ["partenariats","★","Partenariats",1],
+ ["matchs","⚔","Matchs officiels",1], ["posters","▣","Match posters",1], ["coloriages","✎","Coloriages",1], ["overlays","▧","Overlay",1], ["invitation","↗","Lien invitation agence",1], ["avertissements","△","Avertissements",3],
+ ["contrats","▤","Contrats",1], ["documents","▥","Documents",1],
+ ["demandes","◇","Demandes",1], ["messages","✉","Messages",1], ["reunions","◉","Réunions vidéo",1],
+ ["notifications","●","Notifications",1], ["reactivation","↻","Réactivation des accès",2], ["securite","⌁","Sécurité",3], ["admin","⚙","Administration",6]
+];
+const labels=Object.fromEntries(baseMenu.map(x=>[x[0],x[2]]));
+function menuForRole(){
+  return baseMenu.filter(x=>(x[0]!=="admin" || me.role==="Fondateur") && (roleLevel[me.role]>=x[3]) && (["Fondateur","Co-Fondateur","Directeur","Manager"].includes(me.role)||!Array.isArray(me.access_modules)||me.access_modules.includes(x[0])));
+}
+let chatTimer=null;
+let chatSocket=null;
+let deferredInstallPrompt=null;
+let dailyCallFrame=null;
+window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstallPrompt=e;document.querySelectorAll("#installApp").forEach(b=>b.hidden=false)});
+window.addEventListener("appinstalled",()=>{deferredInstallPrompt=null;document.querySelectorAll("#installApp").forEach(b=>b.hidden=true);toast("Application Hellbound Family installée");});
+function setupInstallButton(){
+  const b=$("#installApp"); if(!b)return;
+  const standalone=window.matchMedia("(display-mode: standalone)").matches||window.navigator.standalone===true;
+  b.hidden=standalone||!deferredInstallPrompt;
+  b.onclick=async()=>{
+    if(deferredInstallPrompt){
+      const p=deferredInstallPrompt; deferredInstallPrompt=null;
+      try{const r=await p.prompt(); if(r?.outcome!=="accepted")deferredInstallPrompt=p;}catch{}
+      b.hidden=true; return;
+    }
+    if(/iphone|ipad|ipod/i.test(navigator.userAgent)){toast("Sur iPhone/iPad : Partager → Sur l’écran d’accueil");}
+    else if(/android/i.test(navigator.userAgent)){toast("Dans Chrome : menu ⋮ → Installer l’application");}
+    else{toast("Utilisez l’icône d'installation de votre navigateur");}
+  };
+}
+function shell(content,active){if(dailyCallFrame){try{dailyCallFrame.destroy()}catch{} dailyCallFrame=null} if(chatTimer){clearInterval(chatTimer);chatTimer=null} if(chatSocket){try{chatSocket.close()}catch{} chatSocket=null}document.body.classList.add("halloween-mode");document.querySelector("#app").innerHTML=`<div class="layout"><aside><div class="brand"><div class="logo">H</div><div><b>HELLBOUND</b><small>FAMILY</small></div></div><nav>${menuForRole().map(x=>`<button class="nav ${active===x[0]?"active":""}" data-page="${x[0]}"><span>${x[1]}</span>${x[2]}${x[0]==="notifications"?`<i id="notifBadge"></i>`:""}</button>`).join("")}</nav></aside><main><header>
+  <div class="halloween-ribbon">🎃 HALLOWEEN MODE <span>🕷️</span></div><div class="topbar-left">
+    <button class="mobile-menu" id="mobileMenu" aria-label="Menu">☰</button>
+    <div class="top-search"><span>⌕</span><input id="globalSearch" placeholder="Rechercher dans l'agence..." autocomplete="off"></div>
+  </div>
+  <div class="header-actions">
+    <button class="iconbtn" id="installApp" title="Installer l'application" hidden>⬇ Installer</button>
+    <button class="iconbtn" id="refresh" title="Actualiser">↻</button>
+    <div class="profile-chip">${halloweenAvatar(me)}<div><b>${esc(me.name)}</b><small>${esc(me.role)}</small></div></div>
+    <button class="logout" id="logout">Déconnexion</button>
+  </div>
+</header><section class="content">${content}</section><div class="halloween-fx" aria-hidden="true"><span class="bat bat-1">🦇</span><span class="bat bat-2">🦇</span><span class="bat bat-3">🦇</span><span class="fog fog-1"></span><span class="fog fog-2"></span><span class="spark spark-1">✦</span><span class="spark spark-2">✦</span><span class="spark spark-3">✦</span></div></main></div>`;document.querySelectorAll("[data-page]").forEach(b=>b.onclick=()=>page(b.dataset.page));
+  $("#mobileMenu")?.addEventListener("click",()=>document.querySelector("aside")?.classList.toggle("open"));
+  document.querySelectorAll("aside .nav").forEach(b=>b.addEventListener("click",()=>document.querySelector("aside")?.classList.remove("open")));
+  $("#globalSearch")?.addEventListener("keydown",e=>{if(e.key==="Enter" && e.target.value.trim()){toast("Recherche globale : "+e.target.value.trim())}});
+  $("#logout").onclick=async()=>{await api("/api/logout",{method:"POST"});me=null;login()};$("#refresh").onclick=()=>page(active);setupInstallButton();loadBadge();startHalloweenClock();$("#copyInvite")?.addEventListener("click",async()=>{try{await navigator.clipboard.writeText("https://www.tiktok.com/t/ZSqptNGm9/");toast("Lien d’invitation copié")}catch{toast("Impossible de copier automatiquement le lien")}})}
+function login(err=""){document.querySelector("#app").innerHTML=`<div class="login"><div class="login-card"><div class="logo big">H</div><div class="eyebrow">HELLBOUND FAMILY</div><h1>Accès agence</h1><p class="muted">Entre ton code agence personnel.</p><input id="code" class="login-input" placeholder="CODE AGENCE" autofocus><button class="btn wide" id="go">Se connecter</button>${err?`<div class="error">${esc(err)}</div>`:""}<div class="login-foot">Accès sécurisé · Hellbound Family</div></div></div>`;$("#go").onclick=doLogin;$("#code").onkeydown=e=>{if(e.key==="Enter")doLogin()}}
+async function doLogin(){try{const d=await api("/api/login",{method:"POST",body:JSON.stringify({code:$("#code").value})});me=d.user;page("dashboard")}catch(e){
+  if(e.status===423||e.inactive){inactivePopup();return}
+  toast(e.message)
+}}
+function inactivePopup(){
+  const b=modal(`<div class="modal inactivity-modal"><div class="eyebrow">SÉCURITÉ DU COMPTE</div><h2>Connexion refusée</h2><p>Connexion refusée après délai d'inactivité de <b>72 h</b>.</p><p class="muted">Votre accès a été automatiquement suspendu. Un membre de l'agence ayant un rôle différent de Créateur doit réactiver votre accès.</p><button class="btn" id="inactiveOk">Fermer</button></div>`);
+  $("#inactiveOk").onclick=()=>b.remove();
+}
+async function loadBadge(){try{const d=await api("/api/dashboard");const b=$("#notifBadge");if(b&&d.unread)b.textContent=d.unread}catch{}}
+function head(ey,title,sub,button=""){return `<div class="eyebrow">${ey}</div><div class="head"><div><h1>${title}</h1><div class="muted">${sub}</div></div>${button}</div>`}
+async function reunions(){
+  const d=await api("/api/reunions");
+  const canCreate=roleLevel[me.role]>=3;
+  return head("VISIO", "Réunions vidéo", "Réunions Hellbound Family avec Jitsi Meet — sans clé API.",canCreate?`<button class="btn" id="addMeeting">+ Nouvelle réunion</button>`:"")+`<div class="panel meeting-panel"><div class="eyebrow">JITSI MEET</div><h2>Vos réunions</h2><p class="muted">Les réunions sur meet.jit.si peuvent demander une connexion à l'organisateur. Le lien est partageable : il ne garantit pas un accès réservé aux membres.</p><div class="meeting-list">${d.meetings.length?d.meetings.map(m=>{const old=!String(m.room_url||"").startsWith("https://meet.jit.si/");return `<div class="meeting-card"><div><b>${esc(m.title)}</b><div class="muted">${m.scheduled_at?new Date(m.scheduled_at).toLocaleString("fr-FR"):"Sans horaire"} · créée par ${esc(m.creator_name||"Agence")}</div><small class="muted">${old?"Ancienne salle Daily (non convertible)":"Salle Jitsi Meet"}</small></div><div class="meeting-actions">${!old?`<button class="btn join-meeting" data-id="${m.id}">Rejoindre</button><button class="btn copy-meeting" data-id="${m.id}">Copier le lien</button>`:""}${canCreate?`<button class="btn danger-btn delete-meeting" data-id="${m.id}">Supprimer</button>`:""}</div></div>`}).join(""):"<p class='muted'>Aucune réunion programmée.</p>"}</div></div><div id="dailyRoom" class="daily-room" hidden><div class="daily-room-head"><div><div class="eyebrow">RÉUNION EN COURS</div><b id="dailyRoomTitle">Jitsi Meet</b></div><button class="btn" id="openJitsiTab">Ouvrir dans un onglet</button><button class="btn" id="leaveDaily">Quitter</button></div><div id="dailyContainer" class="daily-container"></div></div>`;
+}
+
+async function invitation(){
+  const link="https://www.tiktok.com/t/ZSqptNGm9/";
+  return head("AGENCE","Lien invitation agence","Lien officiel pour inviter un nouveau membre à rejoindre l’agence.",`<button class="btn" id="copyInvite">Copier le lien</button>`)+`<div class="panel invitation-card"><div class="eyebrow">INVITATION AGENCE</div><h2>Rejoindre Hellbound Family</h2><p class="muted">Utilise ce lien pour inviter une personne à rejoindre l’agence sur TikTok.</p><div class="invite-link"><a href="${link}" target="_blank" rel="noopener noreferrer">${link}</a></div><div class="muted">Clique sur le lien pour l’ouvrir ou utilise « Copier le lien ».</div></div>`;
+}
+
+async function dashboard(){
+  const d=await api("/api/dashboard");
+  const canManage=roleLevel[me.role]>=3;
+  return `<div class="dashboard-hero">
+    <div>
+      <div class="eyebrow">HELLBOUND FAMILY</div>
+      <h1>Bienvenue, ${esc(me.name||"membre")}</h1>
+      <p class="muted">Votre espace de pilotage · <b>${esc(me.role)}</b></p>
+    </div>
+    <div class="hero-badge"><span class="live-dot"></span> Espace sécurisé</div>
+  </div>
+  <section class="halloween-card" id="halloweenCard">
+    <div class="halloween-card-art"><span>🎃</span><span>🦇</span><span>👻</span></div>
+    <div class="halloween-card-copy"><div class="eyebrow orange">ÉVÉNEMENT SAISONNIER</div><h2>🎃 HELLBOUND FAMILY HALLOWEEN 2026</h2><p class="muted">La nuit approche...</p><div id="halloweenCountdown" class="halloween-countdown"></div></div>
+    <div class="halloween-card-actions"><button class="btn" id="openHalloweenSettings">${me.halloween_enabled?"🕯️ Modifier ma participation":"🎃 Participer"}</button><div class="halloween-badge-preview">${me.halloween_enabled?`🎃 HALLOWEEN 2026 · ${halloweenFrames[me.halloween_frame||"pumpkin"][1]}`:"Participation non activée"}</div></div>
+  </section>
+  <div class="dashboard-stats">
+    <div class="stat-card"><div class="stat-icon cyan">♙</div><div><span>CRÉATEURS</span><strong>${d.creators}</strong><small>Profils suivis</small></div></div>
+    <div class="stat-card"><div class="stat-icon purple">◈</div><div><span>UTILISATEURS ACTIFS</span><strong>${d.users}</strong><small>Accès ouverts</small></div></div>
+    <div class="stat-card"><div class="stat-icon pink">◉</div><div><span>HEURES LIVE</span><strong>${Number(d.hours).toFixed(1)} h</strong><small>Activité enregistrée</small></div></div>
+    <div class="stat-card"><div class="stat-icon blue">✦</div><div><span>DIAMANTS</span><strong>${Math.round(Number(d.diamonds)/1000)} K</strong><small>Performance cumulée</small></div></div>
+  </div>
+  <div class="section-title"><div><span>ACCÈS RAPIDE</span><h2>Centre de contrôle</h2></div>${roleLevel[me.role]>=3?`<button class="btn" id="newUser">+ Ajouter un utilisateur</button>`:""}</div>
+  <div class="cards dashboard-cards">${[["♙","Créateurs","Gestion des profils et performances.","createurs"],["⚔","Matchs officiels","Calendrier et suivi des matchs.","matchs"],["✉","Messages","Communication interne en direct.","messages"],["▥","Documents","Ressources de l'agence.","documents"],["◇","Demandes","Demandes et validations.","demandes"]].map((x,i)=>`<button class="panel module" data-page="${x[3]}"><span class="module-icon mi-${i}">${x[0]}</span><b>${x[1]}</b><div class="muted">${x[2]}</div><em>Ouvrir →</em></button>`).join("")}</div>`;
+}
+async function creators(){
+  const d=await api("/api/creators");
+  const canManage=roleLevel[me.role]>=3;
+  return head("CRÉATEURS","Créateurs","Tous les comptes inscrits dans l'agence apparaissent ici, quel que soit leur rôle de connexion.",canManage?`<button class="btn" id="addCreator">+ Ajouter</button>`:"")
+  +`<div class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>Nom</th><th>Rôle</th><th>Manager</th><th>TikTok</th><th>Abonnés</th><th>Jours validés</th><th>Diamants</th><th>LIVE</th><th>Niveau</th><th>État</th><th>Actions</th></tr></thead><tbody>${d.creators.map(c=>`<tr><td><b>${esc(c.name)}</b>${c.halloween_enabled?` <span class="creator-halloween-badge">🎃 HALLOWEEN 2026 · ${esc(halloweenFrames[c.halloween_frame||"pumpkin"]?.[1]||"Halloween")}</span>`:""}</td><td><span class="tag">${esc(c.role||"Créateur")}</span></td><td>${esc(c.manager_name||"-")}</td><td>${esc(c.tiktok||"-")}</td><td>${Number(c.followers||0).toLocaleString("fr-FR")}</td><td>${Number(c.days_validated||0).toLocaleString("fr-FR")}</td><td>${Number(c.diamonds||0).toLocaleString("fr-FR")}</td><td>${Number(c.live_hours||0).toFixed(1)} h</td><td>${esc(c.level||"Nouveau")}</td><td>${c.active?`<span class="tag">Actif</span>`:`<span class="tag off">Inactif</span>`}</td><td>${canManage?`<button class="btn small" onclick="editCreator(${c.id})">Modifier</button> <button class="btn small dangerbtn" onclick="deleteCreator(${c.id},'${esc(c.name).replace(/'/g,"\\'")}')">Supprimer</button>`:"—"}</td></tr>`).join("")}</tbody></table></div></div>`;
+}
+async function rankings(){const d=await api("/api/rankings");return head("PERFORMANCES","Classement","Classement des créateurs par diamants et LIVE.")+`<div class="panel"><table class="table"><thead><tr><th>#</th><th>Créateur</th><th>Diamants</th><th>LIVE</th><th>Abonnés</th><th>Niveau</th></tr></thead><tbody>${d.rankings.map((c,i)=>`<tr><td><b>${i+1}</b></td><td>${esc(c.name)}</td><td>${Number(c.diamonds).toLocaleString("fr-FR")}</td><td>${Number(c.live_hours).toFixed(1)} h</td><td>${Number(c.followers).toLocaleString("fr-FR")}</td><td>${esc(c.level||"-")}</td></tr>`).join("")}</tbody></table></div>`}
+async function danger(){const d=await api("/api/creators");const list=d.creators.filter(c=>!c.active||Number(c.live_hours)<10||Number(c.diamonds)<1000);return head("SURVEILLANCE","Créateurs en danger","Alertes simples basées sur l'activité.")+`<div class="panel">${list.length?list.map(c=>`<div class="item"><div><b>${esc(c.name)}</b><div class="muted">${Number(c.live_hours).toFixed(1)} h · ${Number(c.diamonds).toLocaleString("fr-FR")} diamants</div></div><span class="tag off">À surveiller</span></div>`).join(""):"<p class='muted'>Aucun créateur actuellement signalé.</p>"}</div>`}
+async function users(){
+  const d=await api("/api/users");
+  return head("ADMINISTRATION","Utilisateurs","Gestion des comptes et des accès de l’agence.",`<button class="btn" id="refreshUsers">↻ Actualiser</button> ${roleLevel[me.role]>=3?`<button class="btn" id="newUser">+ Créer un compte</button>`:""}`)
+  +`<div class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>Nom</th><th>Rôle</th><th>Manager</th><th>État</th><th>Dernière connexion</th><th>Code</th><th>Actions</th></tr></thead><tbody>${d.users.map(u=>`<tr><td><b>${esc(u.name)}</b></td><td><span class="tag">${esc(u.role)}</span></td><td>${esc(u.manager_name||"-")}</td><td>${u.inactivity_locked?`<span class="tag off">Bloqué · 72 h</span>`:(u.active?"Actif":"Désactivé")}</td><td>${u.last_login_at?new Date(u.last_login_at).toLocaleString("fr-FR"):"Jamais"}</td><td>${roleLevel[me.role]>=6?`<button class="btn small" onclick="showCode(${u.id})">Voir le code</button>`:"—"}</td><td>${roleLevel[me.role]<3?"Lecture seule":(u.id!==me.id&&roleLevel[u.role]<roleLevel[me.role]?`${u.inactivity_locked?`<button class="btn small" onclick="reactivateUser(${u.id})">Réactiver</button>`:`<button class="btn small" onclick="toggleUser(${u.id},${!u.active})">${u.active?"Désactiver":"Activer"}</button>`} <button class="btn small" onclick="editUser(${u.id})">Modifier</button> <button class="btn small" onclick="regen(${u.id})">Nouveau code</button>${roleLevel[me.role]>=3?` <button class="btn small" onclick="editAccess(${u.id})">Accès</button>`:""} <button class="btn small dangerbtn" onclick="deleteUser(${u.id},'${esc(u.name).replace(/'/g,"\\'")}')">Supprimer</button>`:"—")}</td></tr>`).join("")}</tbody></table></div></div>`;
+}
+async function contracts(){const d=await api("/api/contracts");return head("JURIDIQUE","Contrats","Suivi des contrats et échéances.",roleLevel[me.role]>=3?`<button class="btn" id="addContract">+ Nouveau contrat</button>`:"")+`<div class="panel"><table class="table"><thead><tr><th>Créateur</th><th>Contrat</th><th>Statut</th><th>Début</th><th>Fin</th><th>Notes</th></tr></thead><tbody>${d.contracts.map(c=>`<tr><td>${esc(c.creator_name||"-")}</td><td>${esc(c.title)}</td><td><span class="tag">${esc(c.status)}</span></td><td>${esc(c.start_date||"-")}</td><td>${esc(c.end_date||"-")}</td><td>${esc(c.notes||"")}</td></tr>`).join("")}</tbody></table></div>`}
+async function documents(){const d=await api("/api/documents");return head("RESSOURCES","Documents","Ressources, liens et documents de l'agence.",roleLevel[me.role]>=3?`<button class="btn" id="addDoc">+ Ajouter</button>`:"")+`<div class="panel">${d.documents.length?d.documents.map(x=>`<div class="item"><div><b>${esc(x.title)}</b><div class="muted">${esc(x.category)} · ${esc(x.content||"")}</div></div>${x.url?`<a class="btn small" href="${esc(x.url)}" target="_blank" rel="noreferrer">Ouvrir</a>`:""}</div>`).join(""):"<p class='muted'>Aucun document.</p>"}</div>`}
+let chatMode="general", chatPeer="";
+function chatBubble(m,canModerate=false){const mine=Number(m.sender_id)===Number(me.id);return `<div class="chatmsg ${mine?"mine":""}"><div class="chatmeta"><b>${esc(mine?"Vous":(m.sender_name||"Membre"))}</b> · ${new Date(m.created_at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"})} ${canModerate?`<button class="btn small dangerbtn" data-chat-delete="${m.id}">Supprimer</button> ${!mine&&m.sender_id?`<button class="btn small" data-chat-mute="${m.sender_id}">Sourdine</button>`:""}`:""}</div><div class="chatbody">${esc(m.body)}</div></div>`}
+async function messages(){
+ const c=await api("/api/contacts");
+ return head("COMMUNICATION","Messagerie","Discussions générales et privées en direct.",`<span class="tag">🟢 En direct</span>`)+`<div class="chat-modern"><div class="chat-side"><h3>Conversations</h3><button class="chat-tab ${chatMode==="general"?"selected":""}" data-chat-mode="general">🌐 Général <small>Tous les membres</small></button><button class="chat-tab ${chatMode==="private"?"selected":""}" data-chat-mode="private">✉ Messages privés</button><label class="muted">Destinataire privé</label><select id="chatRecipient"><option value="">Choisir un membre</option>${c.contacts.filter(x=>Number(x.id)!==Number(me.id)).map(x=>`<option value="${x.id}" ${String(x.id)===String(chatPeer)?"selected":""}>${esc(x.name)} · ${esc(x.role)}</option>`).join("")}</select>${["Fondateur","Co-Fondateur","Directeur","Manager"].includes(me.role)?`<button class="btn small" id="chatModHistory">🛡 Historique modération</button>`:""}</div><div class="chat-main"><h3 id="chatTitle">${chatMode==="general"?"🌐 Discussion générale":"✉ Messages privés"}</h3><div class="chatmessages" id="chatMessages"><p class="muted">Chargement...</p></div><div class="chatcomposer"><textarea id="chatBody" maxlength="3000" placeholder="Écrire un message..."></textarea><button class="btn" id="sendChat">➤ Envoyer</button></div></div></div>`;
+}
+async function matches(){
+  const d=await api("/api/matches");
+  return head("COMPÉTITION","Matchs officiels","Calendrier et suivi des matchs.",roleLevel[me.role]>=3?`<button class="btn" id="addMatch">+ Ajouter un match</button>`:"")
+  +`<div class="panel">${d.matches.length?d.matches.map(m=>`<div class="item"><div><b>${esc(m.creator_name||"Créateur")}</b><div class="muted">${esc(m.opponent||"Adversaire à définir")} · ${m.match_date?new Date(m.match_date).toLocaleString("fr-FR"):"Date à définir"}</div><div class="muted">${esc(m.age_restriction||"Tous")} · ${esc(m.boost||"Sans boost")}</div>${m.result?`<div class="muted">Résultat : ${esc(m.result)}</div>`:""}</div><div class="item-actions"><span class="tag">${esc(m.status)}</span>${roleLevel[me.role]>=3?`<button class="btn small" onclick="editMatch(${m.id})">Modifier</button><button class="btn small dangerbtn" onclick="deleteMatch(${m.id})">Supprimer</button>`:""}</div></div>`).join(""):"<p class='muted'>Aucun match programmé.</p>"}</div>`;
+}
+async function posters(){
+  const [d,c]=await Promise.all([api("/api/posters"),api("/api/creator-options")]);
+  return head("COMPÉTITION","Match posters","Envoyez vos affiches et associez-les à un créateur.",roleLevel[me.role]>=3?`<button class="btn" id="addPoster">+ Envoyer une image</button>`:"")
+  +`<div class="panel">${d.posters.length?d.posters.map(p=>`<div class="item"><div><b>${esc(p.creator_name||"Créateur")}</b><div class="muted">${esc(p.original_name)} · ${(Number(p.size_bytes)/1024/1024).toFixed(1)} Mo</div></div><div>${p.url?`<a class="btn small" href="${esc(p.url)}" target="_blank">Ouvrir</a>`:""}${roleLevel[me.role]>=3?` <button class="btn small dangerbtn" onclick="deletePoster(${p.id})">Supprimer</button>`:""}</div></div>`).join(""):"<p class='muted'>Aucun poster.</p>"}</div>`;
+}
+async function colorings(){
+  const d=await api("/api/coloriages");
+  return head("CRÉATIVITÉ","Coloriages","Publiez les coloriages de l'agence, associez-les à un créateur et votez pour plusieurs créations.",`<button class="btn" id="addColoring">+ Publier un coloriage</button>`)
+  +`<div class="coloring-filter" role="group" aria-label="Filtrer les coloriages"><button class="btn small coloring-filter-btn active" data-filter="all" onclick="filterColorings('all',this)">Tous</button><button class="btn small coloring-filter-btn" data-filter="halloween" onclick="filterColorings('halloween',this)">🎃 Halloween</button></div><div class="coloring-grid">${d.colorings.length?d.colorings.map(x=>`<article class="coloring-card" data-halloween="${x.halloween?"true":"false"}"><div class="coloring-image-wrap" title="Cliquer pour agrandir"><img src="${esc(x.url)}" alt="${esc(x.original_name)}" loading="lazy" onclick="openColoring(${x.id})"></div><div class="coloring-body"><div class="coloring-meta"><span class="tag">${esc(x.creator_name||"Créateur")}</span>${x.halloween?`<span class="tag halloween-tag">🎃 HALLOWEEN</span>`:""}<span class="muted">${(Number(x.size_bytes)/1024/1024).toFixed(1)} Mo</span></div><h3>${esc(x.original_name)}</h3><div class="coloring-actions"><button class="btn small" onclick="openColoring(${x.id})">⛶ Agrandir</button><a class="btn small" href="${esc(x.url)}" download="${esc(x.original_name)}">↓ Télécharger</a><button class="btn small ${x.voted?"active-vote":""}" onclick="voteColoring(${x.id})">${x.voted?"♥ Voté":"♡ Voter"} · <b id="votes-${x.id}">${Number(x.vote_count||0)}</b></button>${roleLevel[me.role]>=4?`<button class="btn small dangerbtn" onclick="deleteColoring(${x.id})">Supprimer</button>`:""}</div></div></article>`).join(""):"<div class='panel'><p class='muted'>Aucun coloriage publié pour le moment.</p></div>"}</div>`;
+}
+async function requests(){const d=await api("/api/requests");return head("SERVICE","Demandes","Demandes internes et suivi des réponses.",`<button class="btn" id="addRequest">+ Nouvelle demande</button>`)+`<div class="panel">${d.requests.length?d.requests.map(r=>`<div class="item"><div><b>${esc(r.subject)}</b><div class="muted">${esc(r.type)} · ${esc(r.requester_name||"Moi")}</div><p>${esc(r.body)}</p>${r.response?`<div class="reply">${esc(r.response)}</div>`:""}</div><span class="tag">${esc(r.status)}</span>${roleLevel[me.role]>=3?`<button class="btn small" onclick="answerRequest(${r.id})">Traiter</button>`:""}</div>`).join(""):"<p class='muted'>Aucune demande.</p>"}</div>`}
+async function notifications(){const d=await api("/api/notifications");return head("ALERTES","Notifications","Vos notifications agence.",`<button class="btn" id="readAll">Tout marquer comme lu</button>`)+`<div class="panel">${d.notifications.length?d.notifications.map(n=>`<div class="item"><div><b>${esc(n.title)}</b><div class="muted">${new Date(n.created_at).toLocaleString("fr-FR")}</div><p>${esc(n.body)}</p></div><span class="tag ${n.read_at?"":"off"}">${n.read_at?"Lu":"Nouveau"}</span></div>`).join(""):"<p class='muted'>Aucune notification.</p>"}</div>`}
+async function reactivation(){const d=await api("/api/inactive-users");return head("SÉCURITÉ","Réactivation des accès","Les comptes sans connexion pendant 72 h sont automatiquement suspendus. Tous les rôles sauf Créateur peuvent réactiver un accès.")+`<div class="panel">${d.users.length?`<div class="tablewrap"><table class="table"><thead><tr><th>Nom</th><th>Rôle</th><th>Dernière connexion</th><th>Motif</th><th>Action</th></tr></thead><tbody>${d.users.map(u=>`<tr><td><b>${esc(u.name)}</b></td><td><span class="tag">${esc(u.role)}</span></td><td>${u.last_login_at?new Date(u.last_login_at).toLocaleString("fr-FR"):"Jamais"}</td><td>${esc(u.inactive_reason||"72 h d'inactivité")}</td><td><button class="btn small" onclick="reactivateUser(${u.id})">Réactiver</button></td></tr>`).join("")}</tbody></table></div>`:`<p class="muted">Aucun accès bloqué pour inactivité.</p>`}</div>`}
+async function auditPage(){const d=await api("/api/audit");return head("SÉCURITÉ","Journal des actions","Traçabilité des actions sensibles.")+`<div class="panel"><table class="table"><thead><tr><th>Date</th><th>Utilisateur</th><th>Action</th><th>Détails</th></tr></thead><tbody>${d.logs.map(x=>`<tr><td>${new Date(x.created_at).toLocaleString("fr-FR")}</td><td>${esc(x.name||"-")}</td><td>${esc(x.action)}</td><td>${esc(x.details)}</td></tr>`).join("")}</tbody></table></div>`}
+async function overlays(){
+ const d=await api("/api/overlays");
+ return head("RESSOURCES","Overlay","Fichiers à partager avec tous les membres de Hellbound Family. Tous les formats sont acceptés (limite annoncée : 1000 Mo).",`<button class="btn" id="addOverlay">+ Publier un overlay</button>`)
+ +`<div class="panel">${d.overlays.length?d.overlays.map(x=>`<div class="item"><div><b>${esc(x.original_name)}</b><div class="muted">${(Number(x.size_bytes)/1e6).toFixed(1)} Mo · ${esc(x.uploader_name||"Membre")}</div></div><div><a class="btn small" href="${esc(x.url)}">↓ Télécharger</a>${roleLevel[me.role]>=4?` <button class="btn small dangerbtn" onclick="deleteOverlay(${x.id})">Supprimer</button>`:""}</div></div>`).join(""):`<p class="muted">Aucun overlay pour le moment.</p>`}</div>`;
+}
+window.deleteOverlay=async id=>{if(!confirm("Supprimer définitivement cet overlay ?"))return;try{await api(`/api/overlays/${id}`,{method:"DELETE"});toast("Overlay supprimé");page("overlays")}catch(e){toast(e.message)}};
+async function modulePage(k){const d=await api(`/api/module/${k}`);return head("MODULE",labels[k]||k,"Espace de travail Hellbound Family.",roleLevel[me.role]>=3?`<button class="btn" id="addItem">+ Ajouter</button>`:"")+`<div class="panel">${d.items.length?d.items.map(x=>`<div class="item"><div><b>${esc(x.title)}</b><div class="muted">${esc(x.content||"")}</div></div><span class="tag">${esc(x.status)}</span></div>`).join(""):"<p class='muted'>Aucun élément pour le moment.</p>"}</div>`}
+function modal(html){const b=document.createElement("div");b.className="modalbg";b.innerHTML=html;document.body.append(b);return b}
+async function userModal(){
+  const roles=Object.keys(roleLevel).filter(r=>roleLevel[r]<roleLevel[me.role] || (me.role==="Fondateur" && r==="Fondateur"));
+  let cats=[];
+  if(roleLevel[me.role]>=3){try{const d=await api("/api/access/"+me.id);cats=d.categories||[]}catch{}}
+  const b=modal(`<div class="modal"><h2>Créer un compte</h2>
+    <div class="field"><label>NOM</label><input id="n" autofocus></div>
+    <div class="field"><label>RÔLE</label><select id="r">${roles.map(r=>`<option>${r}</option>`).join("")}</select></div>
+    ${roleLevel[me.role]>=3?`<div class="field"><label>CATÉGORIES AUTORISÉES</label><div class="accessgrid" id="newAccess">${cats.map(([k,label])=>`<label class="check"><input type="checkbox" data-new-access="${k}" checked> ${esc(label)}</label>`).join("")}</div><p class="muted">Pour un Fondateur ou Co-Fondateur, toutes les catégories restent disponibles.</p></div>`:""}
+    <button class="btn" id="save">Créer</button> <button class="btn" id="close">Annuler</button></div>`);
+  $("#close").onclick=()=>b.remove();
+  $("#save").onclick=async()=>{
+    try{
+      const access=[...b.querySelectorAll("[data-new-access]:checked")].map(x=>x.dataset.newAccess);
+      const d=await api("/api/users",{method:"POST",body:JSON.stringify({name:$("#n").value,role:$("#r").value,access_modules:access})});
+      b.innerHTML=`<div class="modal"><h2>Compte créé</h2><div class="code">${esc(d.code)}</div><p class="muted">Le profil apparaît automatiquement dans « Créateurs », « Matchs officiels » et « Match posters », quel que soit son rôle de connexion.</p><button class="btn" id="done">Fermer</button></div>`;
+      $("#done").onclick=()=>{b.remove();page("admin")}
+    }catch(e){toast(e.message)}
+  }
+}
+async function creatorModal(id=null,data={}){const b=modal(`<div class="modal"><h2>${id?"Modifier":"Ajouter"} un créateur</h2><div class="field"><label>NOM</label><input id="cn" value="${esc(data.name||"")}"></div><div class="field"><label>TIKTOK</label><input id="ct" value="${esc(data.tiktok||"")}"></div><div class="field"><label>ABONNÉS</label><input id="cf" type="number" value="${data.followers||0}"></div><div class="field"><label>JOURS VALIDÉS</label><input id="cj" type="number" min="0" step="1" value="${data.days_validated||0}"><small class="muted">Valeur enregistrée directement dans le profil du créateur.</small></div><div class="field"><label>DIAMANTS</label><input id="cd" type="number" value="${data.diamonds||0}"></div><div class="field"><label>HEURES LIVE</label><input id="ch" type="number" step="0.1" value="${data.live_hours||0}"></div><div class="field"><label>NIVEAU</label><input id="cl" value="${esc(data.level||"Nouveau")}"></div><div class="field"><label>NOTE</label><textarea id="co">${esc(data.note||"")}</textarea></div><button class="btn" id="save">Enregistrer</button> <button class="btn" id="close">Annuler</button></div>`);$("#close").onclick=()=>b.remove();$("#save").onclick=async()=>{try{const body={name:$("#cn").value,tiktok:$("#ct").value,followers:$("#cf").value,days_validated:$("#cj").value,diamonds:$("#cd").value,live_hours:$("#ch").value,level:$("#cl").value,note:$("#co").value};const d=id?await api(`/api/creators/${id}`,{method:"PATCH",body:JSON.stringify(body)}):await api("/api/creators",{method:"POST",body:JSON.stringify(body)});if(!id){b.innerHTML=`<div class="modal"><h2>Créateur créé</h2><div class="code">${esc(d.code)}</div><button class="btn" id="done">Fermer</button></div>`;$("#done").onclick=()=>{b.remove();page("createurs")}}else{b.remove();page("createurs")}}catch(e){toast(e.message)}}}
+window.editCreator=async id=>{try{const d=await api("/api/creators");const c=d.creators.find(x=>String(x.id)===String(id));if(c)creatorModal(id,c);else toast("Créateur introuvable")}catch(e){toast(e.message)}};
+window.deleteCreator=async(id,name)=>{if(!confirm(`Supprimer définitivement le créateur « ${name} » ?\n\nSes statistiques et contrats liés seront également supprimés.`))return;try{await api(`/api/creators/${id}`,{method:"DELETE"});toast("Créateur supprimé");page("createurs")}catch(e){toast(e.message)}};
+window.toggleUser=async(id,active)=>{try{await api(`/api/users/${id}`,{method:"PATCH",body:JSON.stringify({active})});page("admin")}catch(e){toast(e.message)}};
+window.editUser=async id=>{
+  try{
+    const d=await api("/api/users");
+    const u=d.users.find(x=>String(x.id)===String(id)); if(!u)return toast("Utilisateur introuvable");
+    const roles=Object.keys(roleLevel).filter(r=>roleLevel[r]<roleLevel[me.role] && roleLevel[r]>=1);
+    const b=modal(`<div class="modal"><h2>Modifier le compte</h2><div class="field"><label>NOM</label><input id="un" value="${esc(u.name)}"></div><div class="field"><label>RÔLE</label><select id="ur">${roles.map(r=>`<option ${r===u.role?"selected":""}>${r}</option>`).join("")}</select></div><button class="btn" id="saveUser">Enregistrer</button> <button class="btn" id="close">Annuler</button></div>`);
+    $("#close").onclick=()=>b.remove();
+    $("#saveUser").onclick=async()=>{try{await api(`/api/users/${id}`,{method:"PATCH",body:JSON.stringify({name:$("#un").value.trim(),role:$("#ur").value})});b.remove();toast("Compte modifié");page("admin")}catch(e){toast(e.message)}};
+  }catch(e){toast(e.message)}
+};
+window.deleteUser=async(id,name)=>{
+  if(!confirm(`Supprimer définitivement le compte « ${name} » ?`))return;
+  try{await api(`/api/users/${id}`,{method:"DELETE"});toast("Compte supprimé");page("admin")}catch(e){toast(e.message)}
+};
+
+window.reactivateUser=async id=>{try{await api(`/api/users/${id}/reactivate`,{method:"POST"});toast("Accès réactivé");page(roleLevel[me.role]>=3?"admin":"reactivation")}catch(e){toast(e.message)}};
+window.showCode=async id=>{
+  try{
+    const d=await api(`/api/users/${id}/code`);
+    const b=modal(`<div class="modal"><h2>Code de connexion</h2><p class="muted">${esc(d.name)}</p><div class="code">${esc(d.code)}</div><button class="btn" id="copyCode">Copier</button> <button class="btn" id="closeCode">Fermer</button></div>`);
+    $("#copyCode").onclick=async()=>{try{await navigator.clipboard.writeText(d.code);toast("Code copié")}catch{toast("Copie impossible")}};
+    $("#closeCode").onclick=()=>b.remove();
+  }catch(e){toast(e.message)}
+};
+window.regen=async id=>{try{const d=await api(`/api/users/${id}/regenerate`,{method:"POST"});const b=modal(`<div class="modal"><h2>Nouveau code</h2><div class="code">${esc(d.code)}</div><button class="btn" id="ok">Fermer</button></div>`);$("#ok").onclick=()=>b.remove()}catch(e){toast(e.message)}};
+async function accessModal(id){
+  try{
+    const d=await api(`/api/access/${id}`);
+    const current=new Set(d.user.access_modules||[]);
+    const b=modal(`<div class="modal"><h2>Catégories autorisées — ${esc(d.user.name)}</h2><p class="muted">Cochez uniquement les rubriques accessibles à ce compte.</p><div class="accessgrid">${d.categories.map(([k,label])=>`<label class="check"><input type="checkbox" data-access="${k}" ${current.has(k)?"checked":""}> ${esc(label)}</label>`).join("")}</div><button class="btn" id="saveAccess">Enregistrer</button> <button class="btn" id="close">Annuler</button></div>`);
+    $("#close").onclick=()=>b.remove();
+    $("#saveAccess").onclick=async()=>{try{const access=[...b.querySelectorAll("[data-access]:checked")].map(x=>x.dataset.access);await api(`/api/access/${id}`,{method:"PUT",body:JSON.stringify({access_modules:access})});toast("Accès mis à jour");b.remove();page("admin")}catch(e){toast(e.message)}};
+  }catch(e){toast(e.message)}
+}
+window.editAccess=accessModal;
+window.deletePoster=async id=>{if(!confirm("Supprimer définitivement ce poster ?"))return;try{await api(`/api/posters/${id}`,{method:"DELETE"});toast("Poster supprimé");page("posters")}catch(e){toast(e.message)}};
+
+window.editMatch=async id=>{
+  try{
+    const [md,cd]=await Promise.all([api("/api/matches"),api("/api/creator-options")]);
+    const m=md.matches.find(x=>Number(x.id)===Number(id)); if(!m)return toast("Match introuvable");
+    const b=modal(`<div class="modal"><h2>Modifier le match officiel</h2><div class="field"><label>CRÉATEUR</label><select id="emCreator">${cd.creators.map(x=>`<option value="${x.id}" ${Number(x.id)===Number(m.creator_id)?"selected":""}>${esc(x.name)}</option>`).join("")}</select></div><div class="field"><label>ADVERSAIRE</label><input id="emOpponent" value="${esc(m.opponent||"")}"></div><div class="field"><label>DATE / HEURE</label><input id="emDate" type="datetime-local" value="${m.match_date?new Date(new Date(m.match_date).getTime()-new Date(m.match_date).getTimezoneOffset()*60000).toISOString().slice(0,16):""}"></div><div class="field"><label>ACCÈS</label><select id="emAge">${["Tous","+18","-18"].map(x=>`<option ${x===(m.age_restriction||"Tous")?"selected":""}>${x}</option>`).join("")}</select></div><div class="field"><label>BOOST</label><select id="emBoost">${["Sans boost","Avec boost"].map(x=>`<option ${x===(m.boost||"Sans boost")?"selected":""}>${x}</option>`).join("")}</select></div><div class="field"><label>STATUT</label><select id="emStatus">${["Planifié","En cours","Terminé","Annulé"].map(x=>`<option ${x===m.status?"selected":""}>${x}</option>`).join("")}</select></div><div class="field"><label>RÉSULTAT</label><input id="emResult" value="${esc(m.result||"")}"></div><div class="field"><label>NOTES</label><textarea id="emNotes">${esc(m.notes||"")}</textarea></div><button class="btn" id="saveMatch">Enregistrer</button> <button class="btn" id="closeMatch">Annuler</button></div>`);
+    $("#closeMatch").onclick=()=>b.remove();
+    $("#saveMatch").onclick=async()=>{try{await api(`/api/matches/${id}`,{method:"PATCH",body:JSON.stringify({creator_id:$("#emCreator").value,opponent:$("#emOpponent").value,match_date:localDateTimeToISO($("#emDate").value),age_restriction:$("#emAge").value,boost:$("#emBoost").value,status:$("#emStatus").value,result:$("#emResult").value,notes:$("#emNotes").value})});b.remove();toast("Match modifié");page("matchs")}catch(e){toast(e.message)}};
+  }catch(e){toast(e.message)}
+};
+window.deleteMatch=async id=>{if(!confirm("Supprimer définitivement ce match officiel ?"))return;try{await api(`/api/matches/${id}`,{method:"DELETE"});toast("Match supprimé");page("matchs")}catch(e){toast(e.message)}};
+
+function simpleForm(title,fields,save){const b=modal(`<div class="modal"><h2>${title}</h2>${fields.map(f=>`<div class="field"><label>${esc(f.label)}</label>${f.type==="textarea"?`<textarea id="${f.id}">${esc(f.value||"")}</textarea>`:f.type==="select"?`<select id="${f.id}">${(f.options||[]).map(o=>`<option value="${esc(o[0])}">${esc(o[1])}</option>`).join("")}</select>`:`<input id="${f.id}" type="${f.type||"text"}" value="${esc(f.value||"")}" placeholder="${esc(f.placeholder||"")}">`}</div>`).join("")}<button class="btn" id="save">Enregistrer</button> <button class="btn" id="close">Annuler</button></div>`);$("#close").onclick=()=>b.remove();$("#save").onclick=async()=>{try{const out={};fields.forEach(f=>out[f.id]=$("#"+f.id).value);await save(out,b)}catch(e){toast(e.message)}}}
+async function refreshChatMessages(){
+ try{
+  const d=chatMode==="general"?await api("/api/chat/general"):await api("/api/messages");
+  const box=$("#chatMessages");if(!box)return;
+  let msgs=chatMode==="general"?d.messages:d.messages.filter(m=>chatPeer&&(Number(m.sender_id)===Number(chatPeer)||Number(m.recipient_id)===Number(chatPeer)));
+  msgs=[...msgs].sort((x,y)=>new Date(x.created_at)-new Date(y.created_at));
+  const previous=box.innerHTML,nearBottom=box.scrollHeight-box.scrollTop-box.clientHeight<110;
+  const html=msgs.map(m=>chatBubble(m,chatMode==="general"&&d.can_moderate)).join("")||`<p class="muted">${chatMode==="general"?"Aucun message dans le général.":"Choisissez un membre pour afficher votre conversation."}</p>`;
+  if(previous!==html){box.innerHTML=html;if(nearBottom)box.scrollTop=box.scrollHeight;}
+  const input=$("#chatBody"),send=$("#sendChat");if(input&&send){const muted=chatMode==="general"&&d.muted_until;input.disabled=!!muted;send.disabled=!!muted;input.placeholder=muted?"Vous êtes temporairement en sourdine":"Écrire un message...";}
+ }catch(e){console.warn("Chat:",e.message)}
+}
+function attachHandlers(k){
+  $("#refreshUsers")?.addEventListener("click",()=>page("admin"));
+  $("#newUser")?.addEventListener("click",userModal);
+  $("#addCreator")?.addEventListener("click",()=>creatorModal());
+  $("#addContract")?.addEventListener("click",async()=>{
+    const d=await api("/api/creator-options");
+    simpleForm("Nouveau contrat",[
+      {id:"creator_id",label:"Créateur",type:"select",options:d.creators.map(x=>[x.id,x.name])},{id:"title",label:"Titre"},
+      {id:"status",label:"Statut",value:"Brouillon"},{id:"start_date",label:"Début",type:"date"},{id:"end_date",label:"Fin",type:"date"},{id:"notes",label:"Notes",type:"textarea"}
+    ],async(v,b)=>{await api("/api/contracts",{method:"POST",body:JSON.stringify(v)});b.remove();page("contrats")});
+  });
+  $("#addDoc")?.addEventListener("click",()=>simpleForm("Ajouter un document",[{id:"title",label:"Titre"},{id:"category",label:"Catégorie",value:"Agence"},{id:"url",label:"Lien URL"},{id:"content",label:"Description",type:"textarea"},{id:"visibility",label:"Visibilité",value:"Tous"}],async(v,b)=>{await api("/api/documents",{method:"POST",body:JSON.stringify(v)});b.remove();page("documents")}));
+  if(k==="messages"){
+    $("#sendChat")?.addEventListener("click",async()=>{try{
+      const body=$("#chatBody").value.trim();if(!body)return toast("Écrivez un message.");
+      if(chatMode==="general")await api("/api/chat/general",{method:"POST",body:JSON.stringify({body})});
+      else {const to=$("#chatRecipient").value;if(!to)return toast("Choisissez un destinataire.");await api("/api/messages",{method:"POST",body:JSON.stringify({recipient_id:to,subject:"Chat",body})});}
+      $("#chatBody").value="";await refreshChatMessages();
+    }catch(e){toast(e.message)}});
+    document.querySelectorAll("[data-chat-mode]").forEach(b=>b.onclick=()=>{chatMode=b.dataset.chatMode;page("messages")});
+    $("#chatRecipient")?.addEventListener("change",e=>{chatPeer=e.target.value;chatMode="private";page("messages")});
+    $("#chatMessages")?.addEventListener("click",async e=>{const del=e.target.closest("[data-chat-delete]"),mute=e.target.closest("[data-chat-mute]");try{
+      if(del&&confirm("Supprimer ce message du général ?")){await api(`/api/chat/general/${del.dataset.chatDelete}`,{method:"DELETE"});await refreshChatMessages()}
+      if(mute){const v=prompt("Durée de sourdine en minutes : 15, 60 ou 1440", "15");if(v===null)return;await api("/api/chat/mute",{method:"POST",body:JSON.stringify({user_id:Number(mute.dataset.chatMute),minutes:Number(v)})});toast("Sourdine appliquée")}
+    }catch(err){toast(err.message)}});
+    $("#chatModHistory")?.addEventListener("click",async()=>{try{const d=await api("/api/chat/moderation");const b=modal(`<div class="modal"><h2>Historique de modération</h2><div style="max-height:55vh;overflow:auto">${d.logs.map(l=>`<div class="item">${esc(l.action)} · ${esc(l.target_name||"Membre")} · ${esc(l.moderator_name||"Modérateur")} · ${new Date(l.created_at).toLocaleString("fr-FR")}</div>`).join("")||"Aucune action"}</div><button class="btn" id="closeMod">Fermer</button></div>`);$("#closeMod").onclick=()=>b.remove()}catch(e){toast(e.message)}});
+    refreshChatMessages();
+    const proto=location.protocol==="https:"?"wss":"ws";
+    try{chatSocket=new WebSocket(`${proto}://${location.host}/ws`);chatSocket.onmessage=()=>refreshChatMessages();}catch{}
+    chatTimer=setInterval(refreshChatMessages,10000);
+    setTimeout(()=>{const box=$("#chatMessages");if(box)box.scrollTop=box.scrollHeight},100);
+  }
+  $("#addMeeting")?.addEventListener("click",()=>simpleForm("Nouvelle réunion Jitsi",[{id:"title",label:"Titre",value:"Réunion Hellbound Family"},{id:"scheduled_at",label:"Date / heure",type:"datetime-local"}],async(v,b)=>{await api("/api/reunions",{method:"POST",body:JSON.stringify(v)});b.remove();toast("Réunion créée");page("reunions")}));
+  document.querySelectorAll(".join-meeting").forEach(btn=>btn.addEventListener("click",async()=>{
+    try {const d=await api(`/api/reunions/${btn.dataset.id}/token`,{method:"POST"});
+      if(!d.url || !d.url.startsWith("https://meet.jit.si/"))throw new Error("Lien Jitsi invalide");
+      const room=$("#dailyRoom"),container=$("#dailyContainer");room.hidden=false;
+      $("#dailyRoomTitle").textContent=btn.closest(".meeting-card")?.querySelector("b")?.textContent||"Jitsi Meet";
+      if(dailyCallFrame){dailyCallFrame.destroy();dailyCallFrame=null}
+      container.innerHTML=`<div class="daily-status">Si la réunion ne s'affiche pas, utilisez « Ouvrir dans un onglet ». L'organisateur peut devoir se connecter à Jitsi.</div><div class="daily-direct-frame"><iframe title="Réunion Jitsi Hellbound Family" allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`;
+      const iframe=container.querySelector("iframe");iframe.src=d.url;
+      dailyCallFrame={destroy:()=>{iframe.src="about:blank"}};
+      $("#openJitsiTab").onclick=()=>window.open(d.url,"_blank","noopener,noreferrer");
+      room.scrollIntoView({behavior:"smooth",block:"start"});
+    }catch(e){toast(e.message)}
+  }));
+  document.querySelectorAll(".copy-meeting").forEach(btn=>btn.addEventListener("click",async()=>{try{const d=await api(`/api/reunions/${btn.dataset.id}/token`,{method:"POST"});await navigator.clipboard.writeText(d.url);toast("Lien copié")}catch(e){toast(e.message)}}));
+  $("#leaveDaily")?.addEventListener("click",()=>{if(dailyCallFrame){dailyCallFrame.destroy();dailyCallFrame=null}$("#dailyContainer").innerHTML="";$("#dailyRoom").hidden=true});
+  document.querySelectorAll(".delete-meeting").forEach(btn=>btn.addEventListener("click",async()=>{if(!confirm("Supprimer cette réunion ?"))return;try{await api(`/api/reunions/${btn.dataset.id}`,{method:"DELETE"});toast("Réunion supprimée");page("reunions")}catch(e){toast(e.message)}}));
+  $("#openHalloweenSettings")?.addEventListener("click",()=>halloweenSettings());
+  $("#addMatch")?.addEventListener("click",async()=>{
+    const d=await api("/api/creator-options");
+    if(!d.creators.length){toast("Aucun compte actif n'est disponible. Créez d'abord un compte dans Administration.");return}
+    simpleForm("Ajouter un match",[
+      {id:"creator_id",label:"Créateur inscrit",type:"select",options:d.creators.map(x=>[x.id,`${x.name}${x.active===false?" (inactif)":""}`])},
+      {id:"opponent",label:"Adversaire"},
+      {id:"match_date",label:"Date/heure",type:"datetime-local"},
+      {id:"age_restriction",label:"Accès",type:"select",options:[["Tous","Tous"],["+18","+18"],["-18","-18"]]},
+      {id:"boost",label:"Boost",type:"select",options:[["Sans boost","Sans boost"],["Avec boost","Avec boost"]]},
+      {id:"status",label:"Statut",value:"Planifié"},{id:"result",label:"Résultat"},{id:"notes",label:"Notes",type:"textarea"}
+    ],async(v,b)=>{v.match_date=localDateTimeToISO(v.match_date);await api("/api/matches",{method:"POST",body:JSON.stringify(v)});b.remove();page("matchs")});
+  });
+  $("#addPoster")?.addEventListener("click",async()=>{
+    const d=await api("/api/creator-options");
+    if(!d.creators.length){toast("Aucun compte actif n'est disponible.");return}
+    const b=modal(`<div class="modal"><h2>Envoyer un match poster</h2><div class="field"><label>CRÉATEUR</label><select id="posterCreator">${d.creators.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select></div><div class="field"><label>IMAGE — maximum 1000 Mo</label><input id="posterFile" type="file" accept="*/*"></div><p class="muted">Tous les formats de fichier sont acceptés.</p><button class="btn" id="savePoster">Envoyer</button> <button class="btn" id="close">Annuler</button></div>`);
+    $("#close").onclick=()=>b.remove();
+    $("#savePoster").onclick=async()=>{
+      const file=$("#posterFile").files[0]; if(!file)return toast("Sélectionnez une image.");
+      if(file.size>1000000000)return toast("Fichier trop volumineux : maximum 1000 Mo.");
+      const fd=new FormData();fd.append("creator_id",$("#posterCreator").value);fd.append("image",file);
+      try{await api("/api/posters",{method:"POST",body:fd,headers:{}});b.remove();toast("Poster envoyé");page("posters")}catch(e){toast(e.message)}
+    };
+  });
+  $("#addOverlay")?.addEventListener("click",()=>{
+    const b=modal(`<div class="modal"><h2>Publier un overlay</h2><label>Fichier (tous formats, maximum 1000 Mo)</label><input id="overlayFile" type="file"><p class="muted">Visible et téléchargeable par tous les membres connectés.</p><div class="modal-actions"><button class="btn" id="saveOverlay">Publier</button><button class="btn" id="closeOverlay">Annuler</button></div></div>`);
+    $("#closeOverlay").onclick=()=>b.remove();
+    $("#saveOverlay").onclick=async()=>{const file=$("#overlayFile").files[0];if(!file)return toast("Sélectionnez un fichier.");if(file.size>1_000_000_000)return toast("Maximum 1000 Mo.");const fd=new FormData();fd.append("file",file);try{await api("/api/overlays",{method:"POST",body:fd});b.remove();toast("Overlay publié");page("overlays")}catch(e){toast(e.message)}};
+  });
+  $("#addColoring")?.addEventListener("click",async()=>{
+    const d=await api("/api/creator-options");
+    if(!d.creators.length){toast("Aucun compte actif n'est disponible.");return}
+    const b=modal(`<div class="modal"><h2>Publier un coloriage</h2><label>Créateur</label><select id="coloringCreator">${d.creators.map(x=>`<option value="${x.id}">${esc(x.name)} — ${esc(x.role||"")}</option>`).join("")}</select><label>Image — maximum 1000 Mo</label><input id="coloringFile" type="file" accept="image/*"><label class="check-label"><input id="coloringHalloween" type="checkbox"> 🎃 Classer dans « Coloriages Halloween »</label><p class="muted">Les coloriages cochés apparaîtront automatiquement dans le filtre Halloween et resteront aussi visibles dans « Tous ».</p><p class="muted">Formats image acceptés par le navigateur et le serveur, jusqu'à 1000 Mo.</p><div class="modal-actions"><button class="btn" id="saveColoring">Publier</button><button class="btn" id="close">Annuler</button></div></div>`);
+    $("#close").onclick=()=>b.remove();
+    $("#saveColoring").onclick=async()=>{const file=$("#coloringFile").files[0];if(!file)return toast("Sélectionnez une image.");if(file.size>1000000000)return toast("Fichier trop volumineux : maximum 1000 Mo.");const fd=new FormData();fd.append("creator_id",$("#coloringCreator").value);fd.append("image",file);fd.append("halloween",$("#coloringHalloween").checked?"true":"false");try{await api("/api/coloriages",{method:"POST",body:fd,headers:{}});b.remove();toast("Coloriage publié");page("coloriages")}catch(e){toast(e.message)}};
+  });
+  $("#addRequest")?.addEventListener("click",()=>simpleForm("Nouvelle demande",[{id:"type",label:"Type",value:"Autre"},{id:"subject",label:"Sujet"},{id:"body",label:"Détail",type:"textarea"}],async(v,b)=>{await api("/api/requests",{method:"POST",body:JSON.stringify(v)});b.remove();page("demandes")}));
+  $("#readAll")?.addEventListener("click",async()=>{await api("/api/notifications/read-all",{method:"PATCH"});page("notifications")});
+  $("#addItem")?.addEventListener("click",()=>simpleForm("Ajouter",[{id:"title",label:"Titre"},{id:"content",label:"Contenu",type:"textarea"},{id:"status",label:"Statut",value:"Actif"}],async(v,b)=>{await api(`/api/module/${k}`,{method:"POST",body:JSON.stringify(v)});b.remove();page(k)}));
+}
+window.filterColorings=(filter,button)=>{document.querySelectorAll(".coloring-filter-btn").forEach(b=>b.classList.toggle("active",b===button));document.querySelectorAll(".coloring-card").forEach(card=>{card.style.display=(filter==="all"||card.dataset.halloween==="true")?"":"none"});const grid=document.querySelector(".coloring-grid");if(grid){let empty=grid.querySelector(".coloring-filter-empty");const visible=[...grid.querySelectorAll(".coloring-card")].some(card=>card.style.display!=="none");if(!visible&&filter==="halloween"){if(!empty){empty=document.createElement("div");empty.className="panel coloring-filter-empty";empty.innerHTML="<p class=\"muted\">Aucun coloriage Halloween pour le moment. Cochez « Classer dans Coloriages Halloween » lors d'une publication.</p>";grid.append(empty)}}else if(empty)empty.remove()}};
+window.openColoring=async id=>{try{const d=await api("/api/coloriages");const x=d.colorings.find(v=>Number(v.id)===Number(id));if(!x)return toast("Coloriage introuvable");const b=modal(`<div class="coloring-lightbox"><button class="lightbox-close" id="closeColoring">×</button><img src="${esc(x.url)}" alt="${esc(x.original_name)}"><div class="lightbox-caption"><b>${esc(x.original_name)}</b><span>${esc(x.creator_name||"Créateur")}</span></div></div>`);$("#closeColoring").onclick=()=>b.remove();b.addEventListener("click",e=>{if(e.target===b)b.remove()})}catch(e){toast(e.message)}};
+window.voteColoring=async id=>{try{const d=await api(`/api/coloriages/${id}/vote`,{method:"POST"});const el=$(`#votes-${id}`);if(el)el.textContent=d.vote_count;page("coloriages")}catch(e){toast(e.message)}};
+window.deleteColoring=async id=>{if(!confirm("Supprimer définitivement ce coloriage ?"))return;try{await api(`/api/coloriages/${id}`,{method:"DELETE"});toast("Coloriage supprimé");page("coloriages")}catch(e){toast(e.message)}};
+window.answerRequest=async id=>{simpleForm("Traiter la demande",[{id:"status",label:"Statut",value:"En cours"},{id:"response",label:"Réponse",type:"textarea"}],async(v,b)=>{await api(`/api/requests/${id}`,{method:"PATCH",body:JSON.stringify(v)});b.remove();page("demandes")})}
+async function page(k){try{if(k==="admin" && me?.role!=="Fondateur") {toast("Administration réservée au Fondateur");return;}let c;if(k==="dashboard")c=await dashboard();else if(k==="createurs")c=await creators();else if(k==="classement")c=await rankings();else if(k==="danger")c=await danger();else if(k==="admin")c=await users();else if(k==="reactivation")c=await reactivation();else if(k==="contrats")c=await contracts();else if(k==="documents")c=await documents();else if(k==="messages")c=await messages();else if(k==="reunions")c=await reunions();else if(k==="matchs")c=await matches();else if(k==="posters")c=await posters();else if(k==="coloriages")c=await colorings();else if(k==="overlays")c=await overlays();else if(k==="invitation")c=await invitation();else if(k==="demandes")c=await requests();else if(k==="notifications")c=await notifications();else if(k==="securite")c=await auditPage();else c=await modulePage(k);shell(c,k);attachHandlers(k)}catch(e){toast(e.message)}}
+(async()=>{try{const d=await api("/api/me");me=d.user;if(me)page("dashboard");else login()}catch{login()}})();

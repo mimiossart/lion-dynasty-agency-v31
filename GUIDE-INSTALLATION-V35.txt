@@ -1,0 +1,8 @@
+Hellbound Family V35
+1. Sauvegarder le dépôt GitHub actuel.
+2. Copier server.js et le dossier public/ de cette archive dans le dépôt.
+3. Commit puis attendre Render Live.
+4. Ctrl+F5.
+5. Tester avec deux comptes distincts : général, privé, suppression, sourdine.
+Les nouvelles tables PostgreSQL sont créées automatiquement au démarrage.
+Modération : Fondateur, Co-Fondateur, Directeur, Manager.

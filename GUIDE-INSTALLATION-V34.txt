@@ -1,0 +1,14 @@
+HELLBOUND FAMILY V34
+
+1. Sauvegarder le dépôt GitHub actuel.
+2. Décompresser ce ZIP.
+3. Remplacer les fichiers à la racine du dépôt et le contenu de public/ par ceux de cette archive.
+4. Attendre Render : Live.
+5. Recharger avec Ctrl+F5.
+
+Administration : menu visible uniquement par le Fondateur. Les API de gestion des comptes et des autorisations sont réservées au Fondateur.
+Réactivation, gestion des profils créateurs et autres modules : règles précédentes conservées.
+Lien invitation : https://www.tiktok.com/t/ZSqptNGm9/
+
+Ne pas modifier les variables d’environnement ou la base de données.
+Sécurité : supprimer la route temporaire /api/initialiser-fondateur et FOUNDER_BOOTSTRAP_SECRET après vérification du compte Fondateur.
