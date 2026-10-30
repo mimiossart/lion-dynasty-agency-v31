@@ -1,0 +1,26 @@
+HELLBOUND FAMILY V37 — NOTIFICATIONS PUSH
+
+1. Sauvegarder le dépôt GitHub et la base Supabase avant le déploiement.
+2. Remplacer les fichiers du dépôt par ceux de cette archive (ne pas supprimer les fichiers non concernés).
+3. Sur un ordinateur avec Node.js, générer UNE FOIS une paire de clés VAPID :
+   npx web-push generate-vapid-keys
+   Conserver les deux clés et ne jamais publier la clé privée dans GitHub.
+4. Dans Render > service > Environment, ajouter :
+   VAPID_PUBLIC_KEY = la clé publique générée
+   VAPID_PRIVATE_KEY = la clé privée générée (secret)
+   VAPID_SUBJECT = mailto:votre-adresse-email@example.com (remplacer par une adresse réelle)
+   Conserver DATABASE_URL et SESSION_SECRET existants.
+5. Déployer, attendre Live, ouvrir le site, faire Ctrl+F5.
+6. Se connecter > Notifications > Activer les notifications. Autoriser dans le navigateur.
+7. Tester avec deux comptes et deux navigateurs/appareils : envoyer un message privé, général, puis enregistrer des statistiques.
+
+ATTENTION :
+- Notifications en arrière-plan possibles uniquement si le navigateur et le système les prennent en charge et si le serveur Render est actif. Sur offre gratuite, veille et latence possibles.
+- Sur iOS, utiliser l'application ajoutée à l'écran d'accueil (iOS 16.4+) et autoriser les notifications.
+- Le service worker n'envoie pas les alertes sans permission et abonnement préalable de chaque membre sur chaque appareil.
+- Les alertes du salon général peuvent être nombreuses ; les membres peuvent les désactiver.
+- Un clic sur une alerte ouvre le site et dirige vers la rubrique si une session est déjà active.
+- Les anciens messages et les statistiques existantes ne déclenchent pas d'alertes rétroactives.
+- Une nouvelle table push_subscriptions est créée automatiquement dans PostgreSQL.
+- Les notifications déjà présentes dans l'application sont conservées.
+- L'archive a été contrôlée statiquement mais pas testée sur ton Render réel.
