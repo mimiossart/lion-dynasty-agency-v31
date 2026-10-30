@@ -660,7 +660,7 @@ app.post("/api/chat/general",auth,requireModule("messages"),async(req,res,next)=
  const body=String(req.body.body||"").trim();if(!body||body.length>3000)return res.status(400).json({error:"Message requis (3000 caractères maximum)"});
  const muted=await pool.query(`SELECT 1 FROM chat_mutes WHERE user_id=$1 AND muted_until>NOW()`,[req.session.user.id]);if(muted.rowCount)return res.status(403).json({error:"Vous êtes temporairement en sourdine"});
  const r=await pool.query(`INSERT INTO chat_general(sender_id,sender_name,body) VALUES($1,$2,$3) RETURNING *`,[req.session.user.id,req.session.user.name,body]);broadcastChat();
- const recipients=await pool.query("SELECT id FROM users WHERE active=TRUE AND id<>$1 AND (access_modules IS NULL OR access_modules LIKE '%messages%')",[req.session.user.id]);
+ const recipients=await pool.query("SELECT id FROM users WHERE active=TRUE AND id<>$1 AND (access_modules IS NULL OR 'messages' = ANY(access_modules))",[req.session.user.id]);
  const ids=recipients.rows.map(x=>Number(x.id));
  await Promise.allSettled(ids.map(id=>pool.query("INSERT INTO notifications(user_id,title,body) VALUES($1,$2,$3)",[id,"Message général",`${req.session.user.name} a écrit dans le salon Général.`])));
  await sendPush(ids,"Message général",`${req.session.user.name} : ${body.slice(0,110)}`,"general","/?page=messages");
