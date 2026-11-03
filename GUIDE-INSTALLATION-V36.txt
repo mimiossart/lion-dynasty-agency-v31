@@ -1,0 +1,8 @@
+Hellbound Family V36 — Jitsi Meet
+1. Sauvegardez votre dépôt GitHub.
+2. Remplacez server.js et public/ avec ceux de ce ZIP.
+3. Attendez le statut Live sur Render puis Ctrl+F5.
+4. Créez une NOUVELLE réunion Jitsi; les anciennes salles Daily restent listées mais ne sont pas convertibles.
+5. Vérifiez création, lien, ouverture, suppression avec vos comptes.
+Note : meet.jit.si est un service public; l’organisateur peut devoir s’authentifier. Les liens ne sont pas privés et la suppression de la fiche ne ferme pas une salle Jitsi.
+DAILY_API_KEY n’est plus utilisée et peut être retirée de Render.

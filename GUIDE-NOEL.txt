@@ -1,0 +1,7 @@
+HELLBOUND FAMILY — NOËL 2026
+
+Remplacez les fichiers du dépôt GitHub par le contenu de cette archive.
+Ne supprimez pas DATABASE_URL, SESSION_SECRET ni les variables VAPID sur Render.
+Les anciennes colonnes Halloween restent dans PostgreSQL pour ne pas supprimer les données existantes, mais le site utilise désormais les champs Noël.
+Les coloriages déjà publiés sont conservés. Le filtre Noël concerne les nouveaux coloriages classés Noël.
+Reconnectez-vous après le déploiement Live.
